@@ -415,6 +415,15 @@
     cursor:pointer;
   }
   .graph-toolbar .gbtn:hover{border-color:var(--red); color:var(--red);}
+  .graph-toolbar .gback{
+    width:auto;
+    padding:0 12px;
+    font-size:12.5px;
+    letter-spacing:.02em;
+    gap:4px;
+    display:inline-flex;
+    align-items:center;
+  }
   .graph-toolbar .gclose{
     font-size:16px;
     width:34px;
@@ -441,9 +450,13 @@
   .graph-node-cat circle{fill:rgba(224,41,63,0.12); stroke:var(--red); stroke-width:2;}
   .graph-node-cat text{fill:var(--ink); font-family:inherit; font-weight:700;}
   .graph-node-cat{cursor:pointer;}
+  .graph-node-cat.nolink{cursor:default;}
   .graph-node-cat:hover circle, .graph-node-cat.active circle{fill:rgba(224,41,63,0.28);}
+  .graph-node-cat.nolink:hover circle{fill:rgba(224,41,63,0.12);}
   .graph-node-topic circle{fill:var(--panel-2); stroke:var(--ink-dim); stroke-width:1.3;}
   .graph-node-topic text{fill:var(--ink-dim); font-family:var(--mono); font-size:9px;}
+  .graph-node-topic text.tlabel{fill:var(--ink); font-family:inherit; font-size:14px; font-weight:600;}
+  .graph-node-topic:hover text.tlabel{fill:var(--red);}
   .graph-node-topic{cursor:pointer;}
   .graph-node-topic:hover circle, .graph-node-topic.active circle{stroke:var(--red); stroke-width:2; fill:rgba(224,41,63,0.18);}
   .graph-node-topic:hover text, .graph-node-topic.active text{fill:var(--red);}
@@ -3916,6 +3929,7 @@ CRT&gt;2秒／無橈動脈？ → 是 → <b>紅色</b>
 <div class="graph-modal" id="graphModal" hidden onclick="if(event.target===this)closeGraph()">
   <div class="graph-panel">
     <div class="graph-toolbar">
+      <button class="gbtn gback" id="graphBackBtn" onclick="exitFocusMode()" title="返回總覽" aria-label="Back to overview" hidden>← <span id="graphBackLabel">總覽</span></button>
       <span class="graph-title" id="graphTitle">主題關聯圖</span>
       <button class="gbtn" onclick="zoomGraph(0.8)" title="縮小" aria-label="Zoom out">−</button>
       <button class="gbtn" onclick="zoomGraph(1)" title="重設" aria-label="Reset zoom">⦿</button>
@@ -4055,8 +4069,10 @@ const GRAPH_CATEGORIES = [
 
 let graphRendered = false;
 let graphZoom = 1;
+let graphMode = 'overview';
+let focusCatIdx = null;
 
-function computeGraphLayout(){
+function computeOverviewLayout(){
   const W = 1100, H = 1100, cx = W/2, cy = H/2;
   const R1 = 150, R2 = 380;
   const sectorSize = 360 / GRAPH_CATEGORIES.length;
@@ -4078,16 +4094,34 @@ function computeGraphLayout(){
       const topicAngle = topicAngleDeg * Math.PI / 180;
       const tx = cx + R2 * Math.cos(topicAngle);
       const ty = cy + R2 * Math.sin(topicAngle);
-      nodes.push({type:'topic', num:num, catIdx:i, x:tx, y:ty});
+      nodes.push({type:'topic', num:num, catIdx:i, x:tx, y:ty, showLabel:false});
       edges.push({type:'edge', catIdx:i, x1:catX, y1:catY, x2:tx, y2:ty});
     });
   });
   return {W:W, H:H, nodes:nodes, edges:edges};
 }
 
+function computeFocusLayout(catIdx){
+  const W = 1100, H = 1100, cx = W/2, cy = H/2;
+  const cat = GRAPH_CATEGORIES[catIdx];
+  const n = cat.nums.length;
+  const R = Math.max(240, n * 22);
+  const nodes = [{type:'cat', idx:catIdx, x:cx, y:cy, angleDeg:-90}];
+  const edges = [];
+  cat.nums.forEach(function(num, j){
+    const angleDeg = j * (360 / n) - 90;
+    const angle = angleDeg * Math.PI / 180;
+    const tx = cx + R * Math.cos(angle);
+    const ty = cy + R * Math.sin(angle);
+    nodes.push({type:'topic', num:num, catIdx:catIdx, x:tx, y:ty, angleDeg:angleDeg, showLabel:true});
+    edges.push({type:'edge', catIdx:catIdx, x1:cx, y1:cy, x2:tx, y2:ty});
+  });
+  return {W:W, H:H, nodes:nodes, edges:edges};
+}
+
 function renderGraph(){
   const lang = currentLang;
-  const layout = computeGraphLayout();
+  const layout = graphMode === 'focus' ? computeFocusLayout(focusCatIdx) : computeOverviewLayout();
   const svg = document.getElementById('graphSvg');
   svg.setAttribute('viewBox', '0 0 ' + layout.W + ' ' + layout.H);
   svg.setAttribute('width', layout.W);
@@ -4101,42 +4135,109 @@ function renderGraph(){
     if (n.type === 'cat') {
       const cat = GRAPH_CATEGORIES[n.idx];
       const label = lang === 'en' ? cat.en : cat.zh;
-      const rad = n.angleDeg * Math.PI / 180;
-      const lx = n.x + 30 * Math.cos(rad);
-      const ly = n.y + 30 * Math.sin(rad);
-      const cosv = Math.cos(rad);
-      const anchor = cosv > 0.3 ? 'start' : (cosv < -0.3 ? 'end' : 'middle');
-      html += '<g class="graph-node-cat" data-cat="' + n.idx + '" onclick="highlightCategory(' + n.idx + ')">'
-        + '<circle cx="' + n.x + '" cy="' + n.y + '" r="15"></circle>'
-        + '<text x="' + lx + '" y="' + ly + '" text-anchor="' + anchor + '" font-size="15" dominant-baseline="middle">' + label + '</text>'
-        + '</g>';
+      const clickable = graphMode === 'overview';
+      const onclick = clickable ? (' onclick="enterFocusMode(' + n.idx + ')"') : '';
+      const cls = 'graph-node-cat' + (clickable ? '' : ' nolink');
+      if (graphMode === 'focus') {
+        html += '<g class="' + cls + '">'
+          + '<circle cx="' + n.x + '" cy="' + n.y + '" r="20"></circle>'
+          + '<text x="' + n.x + '" y="' + n.y + '" text-anchor="middle" dominant-baseline="middle" font-size="13">' + label + '</text>'
+          + '</g>';
+      } else {
+        const rad = n.angleDeg * Math.PI / 180;
+        const lx = n.x + 30 * Math.cos(rad);
+        const ly = n.y + 30 * Math.sin(rad);
+        const cosv = Math.cos(rad);
+        const anchor = cosv > 0.3 ? 'start' : (cosv < -0.3 ? 'end' : 'middle');
+        html += '<g class="' + cls + '" data-cat="' + n.idx + '"' + onclick + '>'
+          + '<circle cx="' + n.x + '" cy="' + n.y + '" r="15"></circle>'
+          + '<text x="' + lx + '" y="' + ly + '" text-anchor="' + anchor + '" font-size="15" dominant-baseline="middle">' + label + '</text>'
+          + '</g>';
+      }
     } else {
-      const label = n.num < 10 ? '0' + n.num : String(n.num);
+      const num = n.num < 10 ? '0' + n.num : String(n.num);
+      let extraLabel = '';
+      if (n.showLabel) {
+        const cat = GRAPH_CATEGORIES[n.catIdx];
+        const title = lang === 'en' ? cat.t[n.num].en : cat.t[n.num].zh;
+        const rad = n.angleDeg * Math.PI / 180;
+        const lx = n.x + 20 * Math.cos(rad);
+        const ly = n.y + 20 * Math.sin(rad);
+        const cosv = Math.cos(rad);
+        const anchor = cosv > 0.25 ? 'start' : (cosv < -0.25 ? 'end' : 'middle');
+        extraLabel = '<text class="tlabel" x="' + lx + '" y="' + ly + '" text-anchor="' + anchor + '" dominant-baseline="middle">' + title + '</text>';
+      }
       html += '<g class="graph-node-topic" data-num="' + n.num + '" data-cat="' + n.catIdx + '" onclick="goToTopic(' + n.num + ')">'
         + '<circle cx="' + n.x + '" cy="' + n.y + '" r="11"></circle>'
-        + '<text x="' + n.x + '" y="' + n.y + '" text-anchor="middle" dominant-baseline="central">' + label + '</text>'
+        + '<text x="' + n.x + '" y="' + n.y + '" text-anchor="middle" dominant-baseline="central">' + num + '</text>'
+        + extraLabel
         + '</g>';
     }
   });
   svg.innerHTML = html;
-  document.getElementById('graphTitle').textContent = lang === 'en' ? 'Topic Connection Map' : '主題關聯圖';
-  activeCatIdx = null;
+
+  const backBtn = document.getElementById('graphBackBtn');
+  if (graphMode === 'focus') {
+    const cat = GRAPH_CATEGORIES[focusCatIdx];
+    document.getElementById('graphTitle').textContent = lang === 'en' ? cat.en : cat.zh;
+    document.getElementById('graphBackLabel').textContent = lang === 'en' ? 'Overview' : '總覽';
+    backBtn.hidden = false;
+  } else {
+    document.getElementById('graphTitle').textContent = lang === 'en' ? 'Topic Connection Map' : '主題關聯圖';
+    backBtn.hidden = true;
+  }
   document.getElementById('graphCaption').textContent = defaultGraphCaption();
   graphRendered = true;
+  recenterGraphCanvas();
+}
+
+function defaultGraphCaption(){
+  const lang = currentLang;
+  if (graphMode === 'focus') {
+    return lang === 'en'
+      ? 'Tap a topic to jump to it · tap "← Overview" to go back'
+      : '點擊主題跳至該頁 · 點擊「← 總覽」返回全圖';
+  }
+  return lang === 'en'
+    ? 'Tap a hub to focus on that category · tap a topic to jump to it'
+    : '點擊主分類節點可聚焦查看該分類 · 點擊主題節點跳至該頁';
+}
+
+function recenterGraphCanvas(){
+  const wrap = document.getElementById('graphCanvasWrap');
+  const svg = document.getElementById('graphSvg');
+  requestAnimationFrame(function(){
+    wrap.scrollLeft = (svg.clientWidth * graphZoom - wrap.clientWidth) / 2;
+    wrap.scrollTop = (svg.clientHeight * graphZoom - wrap.clientHeight) / 2;
+  });
+}
+
+function enterFocusMode(idx){
+  graphMode = 'focus';
+  focusCatIdx = idx;
+  const count = GRAPH_CATEGORIES[idx].nums.length;
+  graphZoom = count > 8 ? Math.max(0.6, 8 / count) : 1;
+  document.getElementById('graphSvg').style.transform = 'scale(' + graphZoom + ')';
+  renderGraph();
+}
+
+function exitFocusMode(){
+  graphMode = 'overview';
+  focusCatIdx = null;
+  graphZoom = 1;
+  document.getElementById('graphSvg').style.transform = 'scale(1)';
+  renderGraph();
 }
 
 function graphEscHandler(e){ if (e.key === 'Escape') closeGraph(); }
 
 function openGraph(){
-  if (!graphRendered) renderGraph();
+  graphMode = 'overview';
+  focusCatIdx = null;
+  renderGraph();
   document.getElementById('graphModal').hidden = false;
   document.addEventListener('keydown', graphEscHandler);
-  const wrap = document.getElementById('graphCanvasWrap');
-  const svg = document.getElementById('graphSvg');
-  requestAnimationFrame(function(){
-    wrap.scrollLeft = (svg.clientWidth - wrap.clientWidth) / 2;
-    wrap.scrollTop = (svg.clientHeight - wrap.clientHeight) / 2;
-  });
+  recenterGraphCanvas();
 }
 
 function closeGraph(){
@@ -4152,52 +4253,11 @@ function zoomGraph(factor){
     graphZoom = Math.min(2.5, Math.max(0.5, graphZoom * factor));
   }
   svg.style.transform = 'scale(' + graphZoom + ')';
-}
-
-let activeCatIdx = null;
-
-function defaultGraphCaption(){
-  return currentLang === 'en'
-    ? 'Tap a node to jump to that topic · tap a hub to see what it covers'
-    : '點擊節點跳至該主題 · 點擊主分類節點可查看該分類內容';
-}
-
-function highlightCategory(idx){
-  const turningOff = activeCatIdx === idx;
-  activeCatIdx = turningOff ? null : idx;
-  document.querySelectorAll('.graph-node-cat').forEach(function(el){
-    el.classList.toggle('active', !turningOff && el.dataset.cat === String(idx));
-  });
-  document.querySelectorAll('.graph-node-topic').forEach(function(el){
-    el.classList.toggle('active', !turningOff && el.dataset.cat === String(idx));
-  });
-  document.querySelectorAll('.graph-edge').forEach(function(el){
-    el.classList.toggle('active', !turningOff && el.dataset.cat === String(idx));
-  });
-
-  const caption = document.getElementById('graphCaption');
-  if (turningOff) {
-    caption.textContent = defaultGraphCaption();
-    return;
-  }
-  const cat = GRAPH_CATEGORIES[idx];
-  const lang = currentLang;
-  const name = lang === 'en' ? cat.en : cat.zh;
-  const countLabel = lang === 'en' ? (cat.nums.length + ' topics') : ('共' + cat.nums.length + '個主題');
-  const items = cat.nums.map(function(n){
-    const num = n < 10 ? '0' + n : String(n);
-    const title = lang === 'en' ? cat.t[n].en : cat.t[n].zh;
-    return num + ' ' + title;
-  }).join(' · ');
-  const wrap = lang === 'en' ? [' (', '): '] : ['（', '）：'];
-  caption.innerHTML = '<b>' + name + '</b>' + wrap[0] + countLabel + wrap[1] + items;
+  recenterGraphCanvas();
 }
 
 function goToTopic(num){
   closeGraph();
-  const cat = GRAPH_CATEGORIES.find(function(c){ return c.t[num]; });
-  const title = cat ? (currentLang === 'en' ? cat.t[num].en : cat.t[num].zh) : '';
-  document.getElementById('graphCaption').textContent = title;
   const cards = document.querySelectorAll('#mainContent details.card');
   for (const card of cards) {
     const badge = card.querySelector('.num');
