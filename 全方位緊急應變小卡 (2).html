@@ -441,7 +441,7 @@
   .graph-node-cat circle{fill:rgba(224,41,63,0.12); stroke:var(--red); stroke-width:2;}
   .graph-node-cat text{fill:var(--ink); font-family:inherit; font-weight:700;}
   .graph-node-cat{cursor:pointer;}
-  .graph-node-cat.active circle{fill:rgba(224,41,63,0.28);}
+  .graph-node-cat:hover circle, .graph-node-cat.active circle{fill:rgba(224,41,63,0.28);}
   .graph-node-topic circle{fill:var(--panel-2); stroke:var(--ink-dim); stroke-width:1.3;}
   .graph-node-topic text{fill:var(--ink-dim); font-family:var(--mono); font-size:9px;}
   .graph-node-topic{cursor:pointer;}
@@ -3925,7 +3925,7 @@ CRT&gt;2秒／無橈動脈？ → 是 → <b>紅色</b>
     <div class="graph-canvas-wrap" id="graphCanvasWrap">
       <svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg>
     </div>
-    <div class="graph-caption" id="graphCaption">點擊節點跳至該主題 · Tap a node to jump to that topic</div>
+    <div class="graph-caption" id="graphCaption">點擊節點跳至該主題 · 點擊主分類節點可查看該分類內容</div>
   </div>
 </div>
 
@@ -4120,7 +4120,8 @@ function renderGraph(){
   });
   svg.innerHTML = html;
   document.getElementById('graphTitle').textContent = lang === 'en' ? 'Topic Connection Map' : '主題關聯圖';
-  document.getElementById('graphCaption').textContent = lang === 'en' ? 'Tap a node to jump to that topic' : '點擊節點跳至該主題 · Tap a node to jump to that topic';
+  activeCatIdx = null;
+  document.getElementById('graphCaption').textContent = defaultGraphCaption();
   graphRendered = true;
 }
 
@@ -4153,16 +4154,43 @@ function zoomGraph(factor){
   svg.style.transform = 'scale(' + graphZoom + ')';
 }
 
+let activeCatIdx = null;
+
+function defaultGraphCaption(){
+  return currentLang === 'en'
+    ? 'Tap a node to jump to that topic · tap a hub to see what it covers'
+    : '點擊節點跳至該主題 · 點擊主分類節點可查看該分類內容';
+}
+
 function highlightCategory(idx){
+  const turningOff = activeCatIdx === idx;
+  activeCatIdx = turningOff ? null : idx;
   document.querySelectorAll('.graph-node-cat').forEach(function(el){
-    el.classList.toggle('active', el.dataset.cat === String(idx));
+    el.classList.toggle('active', !turningOff && el.dataset.cat === String(idx));
   });
   document.querySelectorAll('.graph-node-topic').forEach(function(el){
-    el.classList.toggle('active', el.dataset.cat === String(idx));
+    el.classList.toggle('active', !turningOff && el.dataset.cat === String(idx));
   });
   document.querySelectorAll('.graph-edge').forEach(function(el){
-    el.classList.toggle('active', el.dataset.cat === String(idx));
+    el.classList.toggle('active', !turningOff && el.dataset.cat === String(idx));
   });
+
+  const caption = document.getElementById('graphCaption');
+  if (turningOff) {
+    caption.textContent = defaultGraphCaption();
+    return;
+  }
+  const cat = GRAPH_CATEGORIES[idx];
+  const lang = currentLang;
+  const name = lang === 'en' ? cat.en : cat.zh;
+  const countLabel = lang === 'en' ? (cat.nums.length + ' topics') : ('共' + cat.nums.length + '個主題');
+  const items = cat.nums.map(function(n){
+    const num = n < 10 ? '0' + n : String(n);
+    const title = lang === 'en' ? cat.t[n].en : cat.t[n].zh;
+    return num + ' ' + title;
+  }).join(' · ');
+  const wrap = lang === 'en' ? [' (', '): '] : ['（', '）：'];
+  caption.innerHTML = '<b>' + name + '</b>' + wrap[0] + countLabel + wrap[1] + items;
 }
 
 function goToTopic(num){
