@@ -501,7 +501,7 @@
 <header>
   <div class="eyebrow">ALL-IN-ONE EMERGENCY REFERENCE</div>
   <h1 id="pageTitle">全方位<span>緊急應變小卡</span></h1>
-  <div class="sub" id="pageSub">八十一大主題快速參考 · 點擊展開內容 · 最後更新 2026‑09‑13</div>
+  <div class="sub" id="pageSub">八十一大主題快速參考 · 點擊展開內容</div>
   <div class="toolbar">
     <button class="btn" id="langBtn" onclick="toggleLang()">EN English</button>
     <button class="btn" id="themeBtn" onclick="toggleTheme()">☾ 切換淺色模式</button>
@@ -3989,6 +3989,17 @@ function wrapTables(){
     t.parentNode.insertBefore(wrap, t);
     wrap.appendChild(t);
   });
+}
+
+let _lastUpdatedCache = null;
+function getLastUpdatedText(){
+  if (_lastUpdatedCache) return _lastUpdatedCache;
+  const d = new Date(document.lastModified);
+  const pad = function(n){ return String(n).padStart(2, '0'); };
+  const dash = '‑';
+  _lastUpdatedCache = d.getFullYear() + dash + pad(d.getMonth() + 1) + dash + pad(d.getDate())
+    + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  return _lastUpdatedCache;
 }
 
 const GRAPH_CATEGORIES = [
@@ -11154,7 +11165,7 @@ function toggleLang(){
     currentLang = 'en';
     btn.textContent = '中 中文';
     document.getElementById('pageTitle').innerHTML = 'All-in-One <span>Emergency Reference</span>';
-    document.getElementById('pageSub').textContent = '81 topics · tap to expand · Last updated 2026‑09‑13';
+    document.getElementById('pageSub').textContent = '81 topics · tap to expand · Last updated ' + getLastUpdatedText();
     document.getElementById('searchInput').placeholder = '🔍 Search…';
     document.getElementById('graphBtn').textContent = '🕸 Topic Map';
     document.getElementById('downloadBtn').textContent = '⬇ Download Markdown';
@@ -11163,7 +11174,7 @@ function toggleLang(){
     currentLang = 'zh';
     btn.textContent = 'EN English';
     document.getElementById('pageTitle').innerHTML = '全方位<span>緊急應變小卡</span>';
-    document.getElementById('pageSub').textContent = '八十一大主題快速參考 · 點擊展開內容 · 最後更新 2026‑09‑13';
+    document.getElementById('pageSub').textContent = '八十一大主題快速參考 · 點擊展開內容 · 最後更新 ' + getLastUpdatedText();
     document.getElementById('searchInput').placeholder = '🔍 搜尋內容…';
     document.getElementById('graphBtn').textContent = '🕸 主題關聯圖';
     document.getElementById('downloadBtn').textContent = '⬇ 下載 Markdown 版';
@@ -13505,6 +13516,7 @@ function downloadMD(){
   if (document.body.classList.contains('light')) {
     document.getElementById('themeBtn').textContent = '☀ 切換深色模式';
   }
+  document.getElementById('pageSub').textContent = '八十一大主題快速參考 · 點擊展開內容 · 最後更新 ' + getLastUpdatedText();
   try{
     if (localStorage.getItem('lang') === 'en') toggleLang();
   }catch(e){}
