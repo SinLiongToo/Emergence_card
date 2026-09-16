@@ -424,6 +424,9 @@
     display:inline-flex;
     align-items:center;
   }
+  .graph-toolbar .gback[hidden]{display:none;}
+  .graph-zoom-group{display:inline-flex; gap:8px;}
+  .graph-zoom-group[hidden]{display:none;}
   .graph-toolbar .gclose{
     font-size:16px;
     width:34px;
@@ -484,6 +487,23 @@
   }
   .graph-resume-btn:hover{border-color:var(--red); color:var(--red);}
   .graph-resume-btn[hidden]{display:none;}
+  .graph-mobile-list{padding:14px;}
+  .graph-mobile-list[hidden]{display:none;}
+  .graph-mobile-list .card{margin-bottom:10px;}
+  .graph-mobile-list .card summary .t{font-size:15px;}
+  .graph-mobile-topics{list-style:none; margin:0; padding:0;}
+  .graph-mobile-topics li{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px 4px;
+    border-top:1px solid var(--line);
+    cursor:pointer;
+    font-size:14px;
+  }
+  .graph-mobile-topics li:first-child{border-top:none;}
+  .graph-mobile-topics li:active, .graph-mobile-topics li:hover{color:var(--red);}
+  .graph-mobile-topics li .num{flex-shrink:0;}
   footer{
     max-width:640px;
     margin:20px auto 0;
@@ -4061,13 +4081,16 @@ CRT&gt;2秒／無橈動脈？ → 是 → <b>紅色</b>
     <div class="graph-toolbar">
       <button class="gbtn gback" id="graphBackBtn" onclick="exitFocusMode()" title="返回總覽" aria-label="Back to overview" hidden>← <span id="graphBackLabel">總覽</span></button>
       <span class="graph-title" id="graphTitle">主題關聯圖</span>
-      <button class="gbtn" onclick="zoomGraph(0.8)" title="縮小" aria-label="Zoom out">−</button>
-      <button class="gbtn" onclick="zoomGraph(1)" title="重設" aria-label="Reset zoom">⦿</button>
-      <button class="gbtn" onclick="zoomGraph(1.25)" title="放大" aria-label="Zoom in">+</button>
+      <span class="graph-zoom-group" id="graphZoomGroup">
+        <button class="gbtn" onclick="zoomGraph(0.8)" title="縮小" aria-label="Zoom out">−</button>
+        <button class="gbtn" onclick="zoomGraph(1)" title="重設" aria-label="Reset zoom">⦿</button>
+        <button class="gbtn" onclick="zoomGraph(1.25)" title="放大" aria-label="Zoom in">+</button>
+      </span>
       <button class="gbtn gclose" onclick="closeGraph()" title="關閉" aria-label="Close">✕</button>
     </div>
     <div class="graph-canvas-wrap" id="graphCanvasWrap">
       <svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="graphMobileList" class="graph-mobile-list" hidden></div>
     </div>
     <div class="graph-caption" id="graphCaption">點擊節點跳至該主題 · 點擊主分類節點可查看該分類內容</div>
   </div>
@@ -4267,10 +4290,61 @@ function computeFocusLayout(catIdx){
   return {W:W, H:H, nodes:nodes, edges:edges};
 }
 
+function isMobileGraphView(){
+  return window.innerWidth < 600;
+}
+
+function renderGraphMobileList(){
+  const lang = currentLang;
+  const list = document.getElementById('graphMobileList');
+  let html = '';
+  GRAPH_CATEGORIES.forEach(function(cat, i){
+    const label = lang === 'en' ? cat.en : cat.zh;
+    const catNum = i + 1 < 10 ? '0' + (i + 1) : String(i + 1);
+    html += '<details class="card">'
+      + '<summary>'
+      + '<span class="num">' + catNum + '</span>'
+      + '<span class="t">' + label + '</span>'
+      + '<span class="en">' + cat.nums.length + (lang === 'en' ? ' topics' : ' 項主題') + '</span>'
+      + '<span class="chev">▶</span>'
+      + '</summary>'
+      + '<div class="body"><ul class="graph-mobile-topics">';
+    cat.nums.forEach(function(num){
+      const title = lang === 'en' ? cat.t[num].en : cat.t[num].zh;
+      const numStr = num < 10 ? '0' + num : String(num);
+      html += '<li onclick="goToTopic(' + num + ')"><span class="num">' + numStr + '</span><span>' + title + '</span></li>';
+    });
+    html += '</ul></div></details>';
+  });
+  list.innerHTML = html;
+}
+
 function renderGraph(){
   const lang = currentLang;
-  const layout = graphMode === 'focus' ? computeFocusLayout(focusCatIdx) : computeOverviewLayout();
   const svg = document.getElementById('graphSvg');
+  const mobileList = document.getElementById('graphMobileList');
+  const zoomGroup = document.getElementById('graphZoomGroup');
+  const backBtn = document.getElementById('graphBackBtn');
+
+  if (isMobileGraphView()) {
+    svg.style.display = 'none';
+    mobileList.hidden = false;
+    zoomGroup.hidden = true;
+    backBtn.hidden = true;
+    renderGraphMobileList();
+    document.getElementById('graphTitle').textContent = lang === 'en' ? 'Topic Connection Map' : '主題關聯圖';
+    document.getElementById('graphCaption').textContent = lang === 'en'
+      ? 'Tap a category to expand it · tap a topic to jump to it'
+      : '點擊分類展開內容 · 點擊主題跳至該頁';
+    graphRendered = true;
+    return;
+  }
+
+  svg.style.display = 'block';
+  mobileList.hidden = true;
+  zoomGroup.hidden = false;
+
+  const layout = graphMode === 'focus' ? computeFocusLayout(focusCatIdx) : computeOverviewLayout();
   svg.setAttribute('viewBox', '0 0 ' + layout.W + ' ' + layout.H);
   svg.setAttribute('width', layout.W);
   svg.setAttribute('height', layout.H);
@@ -4324,7 +4398,6 @@ function renderGraph(){
   });
   svg.innerHTML = html;
 
-  const backBtn = document.getElementById('graphBackBtn');
   if (graphMode === 'focus') {
     const cat = GRAPH_CATEGORIES[focusCatIdx];
     document.getElementById('graphTitle').textContent = lang === 'en' ? cat.en : cat.zh;
@@ -4379,13 +4452,22 @@ function exitFocusMode(){
 
 function graphEscHandler(e){ if (e.key === 'Escape') closeGraph(); }
 
+function graphResizeHandler(){
+  clearTimeout(graphResizeTimer);
+  graphResizeTimer = setTimeout(function(){
+    if (!document.getElementById('graphModal').hidden) renderGraph();
+  }, 150);
+}
+let graphResizeTimer = null;
+
 function openGraph(){
   graphMode = 'overview';
   focusCatIdx = null;
   renderGraph();
   document.getElementById('graphModal').hidden = false;
   document.addEventListener('keydown', graphEscHandler);
-  recenterGraphCanvas();
+  window.addEventListener('resize', graphResizeHandler);
+  if (!isMobileGraphView()) recenterGraphCanvas();
   document.getElementById('graphResumeBtn').hidden = true;
 }
 
@@ -4402,13 +4484,15 @@ function resumeGraph(){
   renderGraph();
   document.getElementById('graphModal').hidden = false;
   document.addEventListener('keydown', graphEscHandler);
-  recenterGraphCanvas();
+  window.addEventListener('resize', graphResizeHandler);
+  if (!isMobileGraphView()) recenterGraphCanvas();
   document.getElementById('graphResumeBtn').hidden = true;
 }
 
 function closeGraph(){
   document.getElementById('graphModal').hidden = true;
   document.removeEventListener('keydown', graphEscHandler);
+  window.removeEventListener('resize', graphResizeHandler);
 }
 
 function zoomGraph(factor){
