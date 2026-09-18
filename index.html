@@ -383,6 +383,7 @@
     border-radius:12px;
     width:100%;
     max-width:820px;
+    height:92vh;
     max-height:92vh;
     display:flex;
     flex-direction:column;
@@ -4308,7 +4309,7 @@ CRT&gt;2秒／無橈動脈？ → 是 → <b>紅色</b>
       <span class="graph-title" id="graphTitle">主題關聯圖</span>
       <span class="graph-zoom-group" id="graphZoomGroup">
         <button class="gbtn" onclick="zoomGraph(0.8)" title="縮小" aria-label="Zoom out">−</button>
-        <button class="gbtn" onclick="zoomGraph(1)" title="重設" aria-label="Reset zoom">⦿</button>
+        <button class="gbtn" onclick="zoomGraph(1)" title="縮放至適合大小" aria-label="Fit to screen">⦿</button>
         <button class="gbtn" onclick="zoomGraph(1.25)" title="放大" aria-label="Zoom in">+</button>
       </span>
       <button class="gbtn gclose" onclick="closeGraph()" title="關閉" aria-label="Close">✕</button>
@@ -4465,6 +4466,14 @@ const GRAPH_CATEGORIES = [
 
 let graphRendered = false;
 let graphZoom = 1;
+const GRAPH_NATIVE_SIZE = 1100;
+function computeAutoZoom(){
+  const wrap = document.getElementById('graphCanvasWrap');
+  if (!wrap) return 1;
+  const availW = Math.max(120, wrap.clientWidth - 12);
+  const availH = Math.max(120, wrap.clientHeight - 12);
+  return Math.min(1, availW / GRAPH_NATIVE_SIZE, availH / GRAPH_NATIVE_SIZE);
+}
 let graphMode = 'overview';
 let focusCatIdx = null;
 let resumeGraphMode = 'overview';
@@ -4573,8 +4582,8 @@ function renderGraph(){
 
   const layout = graphMode === 'focus' ? computeFocusLayout(focusCatIdx) : computeOverviewLayout();
   svg.setAttribute('viewBox', '0 0 ' + layout.W + ' ' + layout.H);
-  svg.setAttribute('width', layout.W);
-  svg.setAttribute('height', layout.H);
+  svg.setAttribute('width', layout.W * graphZoom);
+  svg.setAttribute('height', layout.H * graphZoom);
   let html = '';
   layout.edges.forEach(function(e){
     const cls = e.type === 'cat-edge' ? 'graph-edge cat-edge' : 'graph-edge';
@@ -4655,25 +4664,22 @@ function recenterGraphCanvas(){
   const wrap = document.getElementById('graphCanvasWrap');
   const svg = document.getElementById('graphSvg');
   requestAnimationFrame(function(){
-    wrap.scrollLeft = (svg.clientWidth * graphZoom - wrap.clientWidth) / 2;
-    wrap.scrollTop = (svg.clientHeight * graphZoom - wrap.clientHeight) / 2;
+    wrap.scrollLeft = (svg.clientWidth - wrap.clientWidth) / 2;
+    wrap.scrollTop = (svg.clientHeight - wrap.clientHeight) / 2;
   });
 }
 
 function enterFocusMode(idx){
   graphMode = 'focus';
   focusCatIdx = idx;
-  const count = GRAPH_CATEGORIES[idx].nums.length;
-  graphZoom = count > 8 ? Math.max(0.6, 8 / count) : 1;
-  document.getElementById('graphSvg').style.transform = 'scale(' + graphZoom + ')';
+  graphZoom = computeAutoZoom();
   renderGraph();
 }
 
 function exitFocusMode(){
   graphMode = 'overview';
   focusCatIdx = null;
-  graphZoom = 1;
-  document.getElementById('graphSvg').style.transform = 'scale(1)';
+  graphZoom = computeAutoZoom();
   renderGraph();
 }
 
@@ -4682,7 +4688,9 @@ function graphEscHandler(e){ if (e.key === 'Escape') closeGraph(); }
 function graphResizeHandler(){
   clearTimeout(graphResizeTimer);
   graphResizeTimer = setTimeout(function(){
-    if (!document.getElementById('graphModal').hidden) renderGraph();
+    if (document.getElementById('graphModal').hidden) return;
+    if (!isMobileGraphView()) graphZoom = computeAutoZoom();
+    renderGraph();
   }, 150);
 }
 let graphResizeTimer = null;
@@ -4690,8 +4698,9 @@ let graphResizeTimer = null;
 function openGraph(){
   graphMode = 'overview';
   focusCatIdx = null;
-  renderGraph();
   document.getElementById('graphModal').hidden = false;
+  graphZoom = computeAutoZoom();
+  renderGraph();
   document.addEventListener('keydown', graphEscHandler);
   window.addEventListener('resize', graphResizeHandler);
   if (!isMobileGraphView()) recenterGraphCanvas();
@@ -4701,15 +4710,9 @@ function openGraph(){
 function resumeGraph(){
   graphMode = resumeGraphMode;
   focusCatIdx = resumeFocusCatIdx;
-  if (graphMode === 'focus') {
-    const count = GRAPH_CATEGORIES[focusCatIdx].nums.length;
-    graphZoom = count > 8 ? Math.max(0.6, 8 / count) : 1;
-  } else {
-    graphZoom = 1;
-  }
-  document.getElementById('graphSvg').style.transform = 'scale(' + graphZoom + ')';
-  renderGraph();
   document.getElementById('graphModal').hidden = false;
+  graphZoom = computeAutoZoom();
+  renderGraph();
   document.addEventListener('keydown', graphEscHandler);
   window.addEventListener('resize', graphResizeHandler);
   if (!isMobileGraphView()) recenterGraphCanvas();
@@ -4725,11 +4728,12 @@ function closeGraph(){
 function zoomGraph(factor){
   const svg = document.getElementById('graphSvg');
   if (factor === 1) {
-    graphZoom = 1;
+    graphZoom = computeAutoZoom();
   } else {
-    graphZoom = Math.min(2.5, Math.max(0.5, graphZoom * factor));
+    graphZoom = Math.min(2.5, Math.max(0.3, graphZoom * factor));
   }
-  svg.style.transform = 'scale(' + graphZoom + ')';
+  svg.setAttribute('width', GRAPH_NATIVE_SIZE * graphZoom);
+  svg.setAttribute('height', GRAPH_NATIVE_SIZE * graphZoom);
   recenterGraphCanvas();
 }
 
