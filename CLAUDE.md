@@ -1,6 +1,6 @@
 # All-in-One Emergency Reference Card
 
-A single self-contained, offline-first HTML reference tool covering 85 emergency/wilderness/disaster topics, in Traditional Chinese with an English toggle. No build system, no external dependencies — one `.html` file you can open directly in a browser or serve as-is.
+A single self-contained, offline-first HTML reference tool covering 86 emergency/wilderness/disaster topics, in Traditional Chinese with an English toggle. No build system, no external dependencies — one `.html` file you can open directly in a browser or serve as-is.
 
 ## Files
 
@@ -9,7 +9,7 @@ A single self-contained, offline-first HTML reference tool covering 85 emergency
 | `全方位緊急應變小卡 (2).html` | **The source of truth.** Edit this file. |
 | `index.html` | Exact copy of the above, for GitHub Pages (which needs a clean root filename). **Must be re-copied after every edit, before committing.** |
 | `全方位緊急應變小卡 (1).md` | Plain-Markdown export of the topic content, regenerated from the HTML (see below) — not hand-edited. |
-| `全方位緊急應變小卡_總覽地圖.png` | Static poster: all 85 topics grouped into 8 categories (**stale** — last regenerated at 81 topics). |
+| `全方位緊急應變小卡_總覽地圖.png` | Static poster: all 86 topics grouped into 8 categories (**stale** — last regenerated at 81 topics). |
 | `台灣蛇類辨識卡.png` | Static poster: Taiwan snake ID reference (topic 63 extended). |
 
 GitHub Pages is live at `https://sinliongtoo.github.io/Emergence_card/` (source: `main` branch, `/` root).
@@ -24,6 +24,8 @@ Every topic card's content is duplicated:
 
 **Any edit to a topic's content must be applied to all copies that contain it, or the tool will show stale/inconsistent content depending on language or export.** The reliable way to do this: write a small Python script that does a literal (non-regex) `str.replace` of an exact anchor string, `assert content.count(anchor) == <expected count>` before replacing, and `assert content.count(replacement) == <expected count>` after — this catches silent duplication/omission bugs immediately. Do **not** hand-edit the giant `EN_MAIN_HTML`/`ZH_MAIN_HTML` blocks with a text-editor `Edit` tool call for anything non-trivial; the anchors are long and duplicated, and it's easy to only patch one of the 2-3 copies. UI-chrome-only features (a new toolbar button, a modal, an SVG diagram) should instead live **once**, outside the three duplicated blocks (e.g. as a sibling of `<main>`).
 
+**Cross-topic references are auto-linkified, not hand-coded.** Any occurrence of `第N項` (ZH) or `#N` (EN) inside topic body text is turned into a clickable link at render time by `linkifyTopicRefs()` (runs on initial load and after every language toggle) — it opens and scrolls to topic N via `jumpToTopic()`. When writing new topic content, just write the reference in that plain-text form (e.g. `可參考第65項` / `see #65`); do not hand-write `<a>` tags for these, and do not invent a different phrasing — the regex only matches those two patterns, and only numbers matching an actual topic badge get linked.
+
 ## Images
 
 All images are embedded as base64 `data:` URIs directly in the HTML — the tool must work with zero network access. When adding a new photo:
@@ -34,13 +36,13 @@ All images are embedded as base64 `data:` URIs directly in the HTML — the tool
 
 ## The 8-category grouping
 
-Reused across the overview poster and the in-app "Topic Connection Graph": 快速評估與分類, 特殊族群與情境, 基礎救命術, 外傷與傷口照護, 內科與環境急症, 災害與治安應變, 野外與戶外技能, 日常準備與防護. The exact topic-number-to-category mapping lives in `GRAPH_CATEGORIES` inside the HTML's `<script>` block — treat it as the canonical source if it needs to be reused again (it's been verified gap-free across all 85 topics).
+Reused across the overview poster and the in-app "Topic Connection Graph": 快速評估與分類, 特殊族群與情境, 基礎救命術, 外傷與傷口照護, 內科與環境急症, 災害與治安應變, 野外與戶外技能, 日常準備與防護. The exact topic-number-to-category mapping lives in `GRAPH_CATEGORIES` inside the HTML's `<script>` block — treat it as the canonical source if it needs to be reused again (it's been verified gap-free across all 86 topics).
 
 ## Verification workflow
 
 There is no test suite — verification is a headless-browser pass done with Playwright (installed ad hoc into a scratch npm project, not a project dependency). After any edit:
 1. `node -e "new Function(extractedScriptBody)"` on each `<script>` block — catches JS syntax errors cheaply, before ever opening a browser.
-2. Grep-count `<details class="card">` vs `</details>` — must match (255 = 85 topics × 3 language/copy blocks; the mobile Topic Connection Graph's accordion-list renderer also contributes one matching literal-string pair in the JS source, so the live count in the file is 256 = 255 + 1).
+2. Grep-count `<details class="card">` vs `</details>` — must match (258 = 86 topics × 3 language/copy blocks; the mobile Topic Connection Graph's accordion-list renderer also contributes one matching literal-string pair in the JS source, so the live count in the file is 259 = 258 + 1).
 3. A Playwright script that opens the file, exercises search / theme toggle / language toggle / localStorage persistence-after-reload, and asserts zero `console.error`/`pageerror` events.
 4. Screenshot at a mobile width (~375px) and desktop width, in both themes — this UI is mobile-first and dark-mode-first by default.
 
