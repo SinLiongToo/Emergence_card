@@ -523,6 +523,35 @@
     text-align:center;
     border-top:1px solid var(--line);
   }
+  /* Sticky header: stays on top while scrolling, collapses to a compact bar */
+  html{scroll-padding-top:var(--hdr-h, 0px);}
+  header{
+    position:sticky;
+    top:0;
+    z-index:30;
+    background:var(--bg);
+    transition:padding .15s ease;
+  }
+  header .eyebrow, header .sub, header h1{transition:font-size .15s ease, margin .15s ease;}
+  header.compact{
+    padding-top:8px;
+    padding-bottom:8px;
+    box-shadow:0 4px 14px rgba(0,0,0,.35);
+  }
+  body.light header.compact{box-shadow:0 4px 14px rgba(0,0,0,.08);}
+  header.compact .eyebrow, header.compact .sub{display:none;}
+  header.compact h1{font-size:17px; margin:0;}
+  header.compact .toolbar{
+    margin-top:6px;
+    flex-wrap:nowrap;
+    overflow-x:auto;
+    scrollbar-width:none;
+  }
+  header.compact .toolbar::-webkit-scrollbar{display:none;}
+  header.compact .btn{flex-shrink:0; padding-top:6px; padding-bottom:6px;}
+  header.compact .searchbar{margin-top:6px;}
+  header.compact .searchbar input{padding-top:7px; padding-bottom:7px;}
+  header.compact .search-count:empty{display:none;}
 </style>
 </head>
 <body>
@@ -19706,6 +19735,24 @@ function downloadMD(){
   }catch(e){}
   wrapTables();
   linkifyTopicRefs(document.getElementById('mainContent'));
+})();
+
+// Sticky header: compact on scroll (with hysteresis so the height change can't flicker),
+// and keep --hdr-h in sync so jump-to-topic scrolling lands below the header.
+(function(){
+  const header = document.querySelector('header');
+  if (!header) return;
+  const root = document.documentElement;
+  function syncHeight(){ root.style.setProperty('--hdr-h', (header.offsetHeight + 8) + 'px'); }
+  function onScroll(){
+    const y = window.scrollY;
+    if (!header.classList.contains('compact') && y > 120) { header.classList.add('compact'); syncHeight(); }
+    else if (header.classList.contains('compact') && y < 20) { header.classList.remove('compact'); syncHeight(); }
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  window.addEventListener('resize', syncHeight);
+  syncHeight();
+  onScroll();
 })();
 </script>
 
