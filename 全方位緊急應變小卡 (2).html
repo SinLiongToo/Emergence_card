@@ -452,6 +452,31 @@
     display:block;
     transform-origin:0 0;
   }
+  .graph-canvas-wrap.force-mode{position:relative; overflow:hidden; touch-action:none;}
+  .graph-canvas-wrap svg#graphForceSvg{position:absolute; inset:0; width:100%; height:100%; cursor:grab; user-select:none; -webkit-user-select:none;}
+  .graph-canvas-wrap svg#graphForceSvg.panning{cursor:grabbing;}
+  .graph-toolbar .gview{width:auto; padding:0 10px; font-size:12.5px; white-space:nowrap;}
+  .flink{stroke:var(--ink-dim); stroke-width:0.8; opacity:0.35; transition:opacity .15s;}
+  .fnode{cursor:pointer; transition:opacity .15s;}
+  .fnode circle{stroke:var(--bg); stroke-width:1.2;}
+  .fnode text{fill:var(--ink); font-size:calc(12px / var(--k, 1)); font-family:inherit; text-anchor:middle; dominant-baseline:hanging; pointer-events:none;
+    opacity:var(--lbl, 0); paint-order:stroke; stroke:var(--bg); stroke-width:calc(3px / var(--k, 1)); stroke-linejoin:round;}
+  .fnode circle{stroke-width:calc(1.2px / var(--k, 1));}
+  #graphForceSvg.hovering .fnode{opacity:0.15;}
+  #graphForceSvg.hovering .fnode.hl, #graphForceSvg.hovering .fnode.nb{opacity:1;}
+  #graphForceSvg.hovering .fnode.hl text, #graphForceSvg.hovering .fnode.nb text{opacity:1;}
+  #graphForceSvg.hovering .fnode.hl text{font-weight:800;}
+  #graphForceSvg.hovering .fnode.hl circle{stroke:var(--ink); stroke-width:1.8;}
+  #graphForceSvg.hovering .flink{opacity:0.05;}
+  #graphForceSvg.hovering .flink.hl{opacity:0.9; stroke:var(--red); stroke-width:1.4;}
+  .graph-legend{position:absolute; left:10px; top:10px; display:flex; flex-direction:column; gap:2px;
+    background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 8px; font-size:11.5px; opacity:0.92; z-index:2;}
+  .graph-legend[hidden]{display:none;}
+  .graph-legend button{all:unset; display:flex; align-items:center; gap:6px; cursor:pointer; color:var(--ink-dim); padding:1px 2px; border-radius:4px;}
+  .graph-legend button:hover, .graph-legend button.on{color:var(--ink);}
+  .graph-legend button.on{background:var(--panel-2);}
+  .graph-legend i{width:9px; height:9px; border-radius:50%; flex-shrink:0;}
+  @media (max-width:599px){ .graph-legend{font-size:10.5px; padding:4px 6px;} }
   .graph-caption{
     padding:10px 14px;
     border-top:1px solid var(--line);
@@ -5868,6 +5893,7 @@ CRT&gt;2秒／無橈動脈？ → 是 → <b>紅色</b>
     <div class="graph-toolbar">
       <button class="gbtn gback" id="graphBackBtn" onclick="exitFocusMode()" title="返回總覽" aria-label="Back to overview" hidden>← <span id="graphBackLabel">總覽</span></button>
       <span class="graph-title" id="graphTitle">主題關聯圖</span>
+      <button class="gbtn gview" id="graphViewBtn" onclick="toggleGraphView()"></button>
       <span class="graph-zoom-group" id="graphZoomGroup">
         <button class="gbtn" onclick="zoomGraph(0.8)" title="縮小" aria-label="Zoom out">−</button>
         <button class="gbtn" onclick="zoomGraph(1)" title="縮放至適合大小" aria-label="Fit to screen">⦿</button>
@@ -5877,6 +5903,8 @@ CRT&gt;2秒／無橈動脈？ → 是 → <b>紅色</b>
     </div>
     <div class="graph-canvas-wrap" id="graphCanvasWrap">
       <svg id="graphSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+      <svg id="graphForceSvg" xmlns="http://www.w3.org/2000/svg" style="display:none"><g id="graphForceZoom"><g id="graphForceLinks"></g><g id="graphForceNodes"></g></g></svg>
+      <div id="graphLegend" class="graph-legend" hidden></div>
       <div id="graphMobileList" class="graph-mobile-list" hidden></div>
     </div>
     <div class="graph-caption" id="graphCaption">點擊節點跳至該主題 · 點擊主分類節點可查看該分類內容</div>
@@ -6249,12 +6277,354 @@ function renderGraphMobileList(){
   list.innerHTML = html;
 }
 
+// ---------- Network ("Obsidian-style") force-directed view ----------
+const GRAPH_CAT_COLORS = ['#e0293f','#ec7a2c','#d9a514','#43a047','#1e9e8f','#3f8fe0','#8a5cd6','#d6478f'];
+let graphView = 'force';
+try { if (localStorage.getItem('graphView') === 'classic') graphView = 'classic'; } catch(e){}
+const FG = {nodes:null, byNum:{}, links:[], tx:0, ty:0, k:1, alpha:1, raf:null, autoFit:true,
+  built:false, lang:null, hover:null, legendCat:null, touchSel:null, drag:null, pan:null, pointers:{}, pinch:null};
+
+function fgInit(){
+  if (FG.nodes) return;
+  const data = getGraphLinks();
+  FG.nodes = [];
+  // deterministic pseudo-random so the starting layout is the same every time
+  let seed = 7;
+  const rnd = function(){ seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  GRAPH_CATEGORIES.forEach(function(cat, ci){
+    const a = ci / GRAPH_CATEGORIES.length * Math.PI * 2;
+    cat.nums.forEach(function(num){
+      const deg = (data.neighbors[num] || []).length;
+      const n = {num:num, cat:ci, deg:deg, r:3.5 + Math.sqrt(deg) * 1.9,
+        x:Math.cos(a) * 220 + (rnd() - 0.5) * 120, y:Math.sin(a) * 220 + (rnd() - 0.5) * 120, vx:0, vy:0, fixed:false};
+      FG.nodes.push(n);
+      FG.byNum[num] = n;
+    });
+  });
+  FG.links = data.links.map(function(l){ return {a:FG.byNum[l[0]], b:FG.byNum[l[1]]}; }).filter(function(l){ return l.a && l.b; });
+  for (let i = 0; i < 120; i++) fgTick();
+}
+
+function fgTick(){
+  const nodes = FG.nodes, n = nodes.length, alpha = FG.alpha;
+  // repulsion between every pair of nodes
+  for (let i = 0; i < n; i++) {
+    const a = nodes[i];
+    for (let j = i + 1; j < n; j++) {
+      const b = nodes[j];
+      let dx = a.x - b.x, dy = a.y - b.y;
+      let d2 = dx * dx + dy * dy;
+      if (d2 < 1) { dx = (i - j) * 0.1 || 0.1; dy = 0.1; d2 = 1; }
+      if (d2 > 250000) continue;
+      const f = 2600 / d2 * alpha;
+      const d = Math.sqrt(d2);
+      const fx = dx / d * f, fy = dy / d * f;
+      a.vx += fx; a.vy += fy; b.vx -= fx; b.vy -= fy;
+    }
+  }
+  // springs along links
+  FG.links.forEach(function(l){
+    const dx = l.b.x - l.a.x, dy = l.b.y - l.a.y;
+    const d = Math.sqrt(dx * dx + dy * dy) || 1;
+    const f = (d - 70) / d * 0.06 * alpha;
+    l.a.vx += dx * f; l.a.vy += dy * f;
+    l.b.vx -= dx * f; l.b.vy -= dy * f;
+  });
+  // weak pull toward the category's centre (keeps colours clustered) and toward the origin
+  const cx = [], cy = [], cc = [];
+  nodes.forEach(function(nd){ cx[nd.cat] = (cx[nd.cat] || 0) + nd.x; cy[nd.cat] = (cy[nd.cat] || 0) + nd.y; cc[nd.cat] = (cc[nd.cat] || 0) + 1; });
+  nodes.forEach(function(nd){
+    nd.vx += (cx[nd.cat] / cc[nd.cat] - nd.x) * 0.012 * alpha - nd.x * 0.004 * alpha;
+    nd.vy += (cy[nd.cat] / cc[nd.cat] - nd.y) * 0.012 * alpha - nd.y * 0.004 * alpha;
+  });
+  nodes.forEach(function(nd){
+    if (nd.fixed) { nd.vx = 0; nd.vy = 0; return; }
+    nd.vx *= 0.6; nd.vy *= 0.6;
+    nd.x += nd.vx; nd.y += nd.vy;
+  });
+  FG.alpha = Math.max(FG.alpha * 0.985, FG.drag ? 0.3 : 0);
+}
+
+function fgBuild(){
+  const lang = currentLang;
+  const linksG = document.getElementById('graphForceLinks');
+  const nodesG = document.getElementById('graphForceNodes');
+  let lh = '';
+  FG.links.forEach(function(l, i){ lh += '<line class="flink" data-i="' + i + '" data-a="' + l.a.num + '" data-b="' + l.b.num + '"></line>'; });
+  linksG.innerHTML = lh;
+  let nh = '';
+  FG.nodes.forEach(function(nd){
+    const info = graphTopicInfo(nd.num);
+    const title = info ? (lang === 'en' ? info.en : info.zh) : '';
+    nh += '<g class="fnode" data-num="' + nd.num + '"><circle r="' + nd.r.toFixed(1) + '" fill="' + GRAPH_CAT_COLORS[nd.cat] + '"></circle>'
+      + '<text y="' + (nd.r + 2).toFixed(1) + '">' + title + '</text></g>';
+  });
+  nodesG.innerHTML = nh;
+  FG.lineEls = linksG.children;
+  FG.nodeEls = {};
+  Array.prototype.forEach.call(nodesG.children, function(g){ FG.nodeEls[g.getAttribute('data-num')] = g; });
+  const legend = document.getElementById('graphLegend');
+  legend.innerHTML = GRAPH_CATEGORIES.map(function(cat, i){
+    return '<button data-cat="' + i + '"><i style="background:' + GRAPH_CAT_COLORS[i] + '"></i>' + (lang === 'en' ? cat.en : cat.zh) + '</button>';
+  }).join('');
+  FG.built = true;
+  FG.lang = lang;
+  FG.hover = null; FG.legendCat = null; FG.touchSel = null;
+}
+
+function fgDraw(){
+  for (let i = 0; i < FG.links.length; i++) {
+    const l = FG.links[i], el = FG.lineEls[i];
+    el.setAttribute('x1', l.a.x.toFixed(1)); el.setAttribute('y1', l.a.y.toFixed(1));
+    el.setAttribute('x2', l.b.x.toFixed(1)); el.setAttribute('y2', l.b.y.toFixed(1));
+  }
+  FG.nodes.forEach(function(nd){
+    FG.nodeEls[nd.num].setAttribute('transform', 'translate(' + nd.x.toFixed(1) + ',' + nd.y.toFixed(1) + ')');
+  });
+  fgApplyTransform();
+}
+
+function fgSize(){
+  const svg = document.getElementById('graphForceSvg');
+  return {w:svg.clientWidth, h:svg.clientHeight};
+}
+
+function fgFit(){
+  const sz = fgSize();
+  if (!sz.w || !sz.h) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  FG.nodes.forEach(function(nd){ x0 = Math.min(x0, nd.x); y0 = Math.min(y0, nd.y); x1 = Math.max(x1, nd.x); y1 = Math.max(y1, nd.y); });
+  const pad = 40;
+  FG.k = Math.min(3, Math.max(0.2, Math.min(sz.w / (x1 - x0 + pad * 2), sz.h / (y1 - y0 + pad * 2))));
+  FG.tx = sz.w / 2 - (x0 + x1) / 2 * FG.k;
+  FG.ty = sz.h / 2 - (y0 + y1) / 2 * FG.k;
+  FG.fitK = FG.k;
+}
+
+function fgApplyTransform(){
+  document.getElementById('graphForceZoom').setAttribute('transform', 'translate(' + FG.tx.toFixed(1) + ',' + FG.ty.toFixed(1) + ') scale(' + FG.k.toFixed(3) + ')');
+  // labels keep a fixed on-screen size and fade in as you zoom in, like Obsidian
+  const rel = FG.k / (FG.fitK || FG.k);
+  const lbl = Math.max(0, Math.min(1, (rel - 1.4) / 0.8));
+  const st = document.getElementById('graphForceSvg').style;
+  st.setProperty('--lbl', lbl.toFixed(2));
+  st.setProperty('--k', FG.k.toFixed(3));
+}
+
+function fgLoop(){
+  FG.raf = null;
+  if (document.getElementById('graphModal').hidden || graphView !== 'force') return;
+  if (FG.alpha > 0.004) fgTick();
+  if (FG.autoFit) fgFit();
+  fgDraw();
+  if (FG.alpha > 0.004) FG.raf = requestAnimationFrame(fgLoop);
+}
+function fgKick(alpha){
+  if (alpha != null) FG.alpha = Math.max(FG.alpha, alpha);
+  if (!FG.raf) FG.raf = requestAnimationFrame(fgLoop);
+}
+
+function fgHighlight(num, catIdx){
+  const svg = document.getElementById('graphForceSvg');
+  svg.querySelectorAll('.fnode.hl, .fnode.nb').forEach(function(el){ el.classList.remove('hl', 'nb'); });
+  svg.querySelectorAll('.flink.hl').forEach(function(el){ el.classList.remove('hl'); });
+  document.querySelectorAll('#graphLegend button.on').forEach(function(el){ el.classList.remove('on'); });
+  const cap = document.getElementById('graphCaption');
+  if (num == null && catIdx == null) {
+    svg.classList.remove('hovering');
+    cap.textContent = defaultGraphCaption();
+    return;
+  }
+  svg.classList.add('hovering');
+  if (catIdx != null) {
+    GRAPH_CATEGORIES[catIdx].nums.forEach(function(k){ FG.nodeEls[k].classList.add('hl'); });
+    FG.links.forEach(function(l, i){ if (l.a.cat === catIdx && l.b.cat === catIdx) FG.lineEls[i].classList.add('hl'); });
+    const btn = document.querySelector('#graphLegend button[data-cat="' + catIdx + '"]');
+    if (btn) btn.classList.add('on');
+    const cat = GRAPH_CATEGORIES[catIdx];
+    cap.textContent = (currentLang === 'en' ? cat.en : cat.zh) + ' · ' + cat.nums.length + (currentLang === 'en' ? ' topics' : ' 項主題');
+    return;
+  }
+  FG.nodeEls[num].classList.add('hl');
+  (getGraphLinks().neighbors[num] || []).forEach(function(k){ if (FG.nodeEls[k]) FG.nodeEls[k].classList.add('nb'); });
+  FG.links.forEach(function(l, i){ if (l.a.num === num || l.b.num === num) FG.lineEls[i].classList.add('hl'); });
+  graphHighlight(num); // reuse caption text ("NN title — related: …")
+  if (FG.touchSel === num) cap.textContent += currentLang === 'en' ? ' (tap again to open)' : '（再點一次開啟）';
+}
+
+function fgToWorld(px, py){
+  const rect = document.getElementById('graphForceSvg').getBoundingClientRect();
+  return {x:(px - rect.left - FG.tx) / FG.k, y:(py - rect.top - FG.ty) / FG.k};
+}
+function fgZoomAt(factor, px, py){
+  const rect = document.getElementById('graphForceSvg').getBoundingClientRect();
+  const sx = px - rect.left, sy = py - rect.top;
+  const k = Math.min(6, Math.max(0.15, FG.k * factor));
+  FG.tx = sx - (sx - FG.tx) * (k / FG.k);
+  FG.ty = sy - (sy - FG.ty) * (k / FG.k);
+  FG.k = k;
+  FG.autoFit = false;
+  fgApplyTransform();
+}
+
+(function(){
+  const svg = document.getElementById('graphForceSvg');
+  if (!svg) return;
+  svg.addEventListener('pointerdown', function(e){
+    FG.pointers[e.pointerId] = {x:e.clientX, y:e.clientY};
+    svg.setPointerCapture(e.pointerId);
+    const ids = Object.keys(FG.pointers);
+    if (ids.length === 2) {
+      // second finger: switch to pinch zoom
+      if (FG.drag) { FG.drag.node.fixed = false; FG.drag = null; }
+      FG.pan = null;
+      const p = ids.map(function(id){ return FG.pointers[id]; });
+      FG.pinch = {d:Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y), k:FG.k};
+      return;
+    }
+    const g = e.target.closest('.fnode');
+    if (g) {
+      const node = FG.byNum[g.getAttribute('data-num')];
+      FG.drag = {node:node, sx:e.clientX, sy:e.clientY, moved:false, type:e.pointerType};
+    } else {
+      FG.pan = {sx:e.clientX, sy:e.clientY, tx:FG.tx, ty:FG.ty, moved:false};
+      svg.classList.add('panning');
+    }
+  });
+  svg.addEventListener('pointermove', function(e){
+    if (FG.pointers[e.pointerId]) FG.pointers[e.pointerId] = {x:e.clientX, y:e.clientY};
+    if (FG.pinch) {
+      const p = Object.keys(FG.pointers).map(function(id){ return FG.pointers[id]; });
+      if (p.length < 2) return;
+      const d = Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y);
+      fgZoomAt(FG.pinch.k * d / FG.pinch.d / FG.k, (p[0].x + p[1].x) / 2, (p[0].y + p[1].y) / 2);
+      return;
+    }
+    if (FG.drag) {
+      const dr = FG.drag;
+      if (!dr.moved && Math.hypot(e.clientX - dr.sx, e.clientY - dr.sy) > 4) {
+        dr.moved = true; dr.node.fixed = true; FG.autoFit = false;
+        fgHighlight(dr.node.num);
+      }
+      if (dr.moved) {
+        const w = fgToWorld(e.clientX, e.clientY);
+        dr.node.x = w.x; dr.node.y = w.y;
+        fgKick(0.3);
+        fgDraw();
+      }
+      return;
+    }
+    if (FG.pan) {
+      const dx = e.clientX - FG.pan.sx, dy = e.clientY - FG.pan.sy;
+      if (Math.hypot(dx, dy) > 3) FG.pan.moved = true;
+      FG.tx = FG.pan.tx + dx; FG.ty = FG.pan.ty + dy;
+      FG.autoFit = false;
+      fgApplyTransform();
+      return;
+    }
+    if (e.pointerType === 'mouse') {
+      const g = e.target.closest('.fnode');
+      const num = g ? parseInt(g.getAttribute('data-num'), 10) : null;
+      if (num !== FG.hover && FG.legendCat == null) { FG.hover = num; fgHighlight(num); }
+    }
+  });
+  function end(e){
+    delete FG.pointers[e.pointerId];
+    if (FG.pinch) { if (Object.keys(FG.pointers).length < 2) FG.pinch = null; return; }
+    svg.classList.remove('panning');
+    if (FG.drag) {
+      const dr = FG.drag;
+      FG.drag = null;
+      dr.node.fixed = false;
+      if (e.type === 'pointerup' && !dr.moved) {
+        if (dr.type === 'mouse' || FG.touchSel === dr.node.num) { FG.touchSel = null; goToTopic(dr.node.num); return; }
+        // touch: first tap highlights the topic and its links, second tap opens it
+        FG.touchSel = dr.node.num;
+        FG.legendCat = null;
+        fgHighlight(dr.node.num);
+      } else if (dr.type === 'mouse') {
+        fgHighlight(FG.hover);
+      }
+      if (dr.moved) fgKick(0.1);
+      return;
+    }
+    if (FG.pan) {
+      const moved = FG.pan.moved;
+      FG.pan = null;
+      if (!moved && e.type === 'pointerup') { FG.touchSel = null; FG.legendCat = null; fgHighlight(null); }
+    }
+  }
+  svg.addEventListener('pointerup', end);
+  svg.addEventListener('pointercancel', end);
+  svg.addEventListener('pointerleave', function(e){
+    if (e.pointerType === 'mouse' && !FG.drag && FG.legendCat == null && FG.hover != null) { FG.hover = null; fgHighlight(null); }
+  });
+  svg.addEventListener('wheel', function(e){
+    e.preventDefault();
+    fgZoomAt(Math.exp(-e.deltaY * 0.0015), e.clientX, e.clientY);
+  }, {passive:false});
+  document.getElementById('graphLegend').addEventListener('click', function(e){
+    const b = e.target.closest('button');
+    if (!b) return;
+    const ci = parseInt(b.getAttribute('data-cat'), 10);
+    FG.touchSel = null;
+    FG.legendCat = FG.legendCat === ci ? null : ci;
+    fgHighlight(null, FG.legendCat);
+  });
+})();
+
+function updateGraphViewBtn(){
+  const btn = document.getElementById('graphViewBtn');
+  const en = currentLang === 'en';
+  if (graphView === 'force') {
+    const mobile = isMobileGraphView();
+    btn.textContent = mobile ? (en ? '☰ List' : '☰ 列表') : (en ? '◎ Rings' : '◎ 環狀圖');
+    btn.title = mobile ? (en ? 'Show as list' : '切換為列表') : (en ? 'Show grouped ring view' : '切換為分類環狀圖');
+  } else {
+    btn.textContent = en ? '✱ Network' : '✱ 網狀圖';
+    btn.title = en ? 'Show network graph' : '切換為網狀關聯圖';
+  }
+}
+
+function toggleGraphView(){
+  graphView = graphView === 'force' ? 'classic' : 'force';
+  try { localStorage.setItem('graphView', graphView); } catch(e){}
+  graphMode = 'overview';
+  focusCatIdx = null;
+  graphZoom = computeAutoZoom();
+  renderGraph();
+}
+
+function renderForceGraph(){
+  const lang = currentLang;
+  const wrap = document.getElementById('graphCanvasWrap');
+  wrap.classList.add('force-mode');
+  wrap.scrollLeft = 0; wrap.scrollTop = 0;
+  document.getElementById('graphSvg').style.display = 'none';
+  document.getElementById('graphMobileList').hidden = true;
+  document.getElementById('graphForceSvg').style.display = 'block';
+  document.getElementById('graphLegend').hidden = false;
+  document.getElementById('graphZoomGroup').hidden = false;
+  document.getElementById('graphBackBtn').hidden = true;
+  document.getElementById('graphTitle').textContent = lang === 'en' ? 'Topic Connection Map' : '主題關聯圖';
+  fgInit();
+  if (!FG.built || FG.lang !== lang) fgBuild();
+  fgHighlight(null);
+  graphRendered = true;
+  if (!document.getElementById('graphModal').hidden) { fgDraw(); fgKick(); }
+}
+
 function renderGraph(){
   const lang = currentLang;
   const svg = document.getElementById('graphSvg');
   const mobileList = document.getElementById('graphMobileList');
   const zoomGroup = document.getElementById('graphZoomGroup');
   const backBtn = document.getElementById('graphBackBtn');
+  updateGraphViewBtn();
+  if (graphView === 'force') { renderForceGraph(); return; }
+  document.getElementById('graphCanvasWrap').classList.remove('force-mode');
+  document.getElementById('graphForceSvg').style.display = 'none';
+  document.getElementById('graphLegend').hidden = true;
 
   if (isMobileGraphView()) {
     svg.style.display = 'none';
@@ -6348,6 +6718,15 @@ function renderGraph(){
 
 function defaultGraphCaption(){
   const lang = currentLang;
+  if (graphView === 'force') {
+    const touch = window.matchMedia && window.matchMedia('(hover: none)').matches;
+    if (touch) return lang === 'en'
+      ? 'Tap a topic to see its links, tap again to open · drag to move · pinch to zoom'
+      : '點一下主題顯示關聯，再點一次開啟 · 拖曳移動 · 雙指縮放';
+    return lang === 'en'
+      ? 'Hover to see links · click to open · drag nodes or the background · scroll to zoom · click a colour to highlight a category'
+      : '滑過主題顯示關聯 · 點擊開啟 · 可拖曳節點或背景 · 滾輪縮放 · 點色塊標示分類';
+  }
   if (graphMode === 'focus') {
     return lang === 'en'
       ? 'Tap a topic to jump to it · tap "← Overview" to go back'
@@ -6388,6 +6767,7 @@ function graphResizeHandler(){
   graphResizeTimer = setTimeout(function(){
     if (document.getElementById('graphModal').hidden) return;
     if (!isMobileGraphView()) graphZoom = computeAutoZoom();
+    if (graphView === 'force' && FG.autoFit && FG.nodes) { fgFit(); fgApplyTransform(); }
     renderGraph();
   }, 150);
 }
@@ -6424,6 +6804,12 @@ function closeGraph(){
 }
 
 function zoomGraph(factor){
+  if (graphView === 'force') {
+    if (factor === 1) { FG.autoFit = true; fgFit(); fgApplyTransform(); return; }
+    const r = document.getElementById('graphForceSvg').getBoundingClientRect();
+    fgZoomAt(factor, r.left + r.width / 2, r.top + r.height / 2);
+    return;
+  }
   const svg = document.getElementById('graphSvg');
   if (factor === 1) {
     graphZoom = computeAutoZoom();

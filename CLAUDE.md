@@ -40,6 +40,8 @@ Reused across the overview poster and the in-app "Topic Connection Graph": 快�
 
 The graph also draws **topic-to-topic links**. They are built at render time by `getGraphLinks()`: every `第N項` reference inside `ZH_MAIN_HTML` becomes a link automatically, and `GRAPH_EXTRA_LINKS` (hand-picked pairs) covers topics whose text references no other topic. Adding a `第N項` cross-reference to topic text is all it takes to add a graph link. For a new topic with no references, add a pair to `GRAPH_EXTRA_LINKS` so it isn't left unconnected.
 
+The graph has two views, switched by the toolbar button (choice saved in `localStorage.graphView`). The default **network view** is an Obsidian-style force-directed layout: the hand-written physics loop is the `fg*` functions with state in the `FG` object, nodes are coloured by `GRAPH_CAT_COLORS` and sized by link count, and labels fade in as you zoom. The **classic view** is the ring layout on desktop and the accordion list on mobile.
+
 ## Verification workflow
 
 There is no test suite — verification is a headless-browser pass done with Playwright (installed ad hoc into a scratch npm project, not a project dependency). After any edit:
