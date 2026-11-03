@@ -38,6 +38,8 @@ All images are embedded as base64 `data:` URIs directly in the HTML — the tool
 
 Reused across the overview poster and the in-app "Topic Connection Graph": 快速評估與分類, 特殊族群與情境, 基礎救命術, 外傷與傷口照護, 內科與環境急症, 災害與治安應變, 野外與戶外技能, 日常準備與防護. The exact topic-number-to-category mapping lives in `GRAPH_CATEGORIES` inside the HTML's `<script>` block — treat it as the canonical source if it needs to be reused again (it's been verified gap-free across all 111 topics).
 
+The graph also draws **topic-to-topic links**. They are built at render time by `getGraphLinks()`: every `第N項` reference inside `ZH_MAIN_HTML` becomes a link automatically, and `GRAPH_EXTRA_LINKS` (hand-picked pairs) covers topics whose text references no other topic. Adding a `第N項` cross-reference to topic text is all it takes to add a graph link. For a new topic with no references, add a pair to `GRAPH_EXTRA_LINKS` so it isn't left unconnected.
+
 ## Verification workflow
 
 There is no test suite — verification is a headless-browser pass done with Playwright (installed ad hoc into a scratch npm project, not a project dependency). After any edit:

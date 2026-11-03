@@ -477,6 +477,15 @@
   .graph-edge.cat-edge{stroke:var(--red-dim); stroke-width:1.4; opacity:0.6;}
   .graph-edge.cat-edge.active{stroke:var(--red); opacity:1;}
   .graph-edge.active{stroke:var(--red-dim);}
+  .graph-link{fill:none; stroke:var(--ink-dim); stroke-width:0.9; opacity:0.28; pointer-events:none;}
+  .graph-link.intra{stroke:var(--red); opacity:0.4;}
+  #graphSvg.hovering .graph-link{opacity:0.06;}
+  #graphSvg.hovering .graph-link.active{stroke:var(--red); opacity:0.95; stroke-width:2;}
+  #graphSvg.hovering .graph-node-topic.linked circle{stroke:var(--red); stroke-width:2;}
+  #graphSvg.hovering .graph-node-topic.linked text{fill:var(--red);}
+  .graph-mobile-topics li .rel{display:block; margin-top:3px; font-size:12px; color:var(--ink-dim);}
+  .graph-mobile-topics li .rel a{color:var(--ink-dim); text-decoration:underline; margin-right:8px; cursor:pointer;}
+  .graph-mobile-topics li .rel a:hover{color:var(--red);}
   .graph-resume-btn{
     position:fixed;
     right:16px;
@@ -6043,6 +6052,105 @@ const GRAPH_CATEGORIES = [
   }},
 ];
 
+// Topic-to-topic links for the connection graph. Most come automatically from the
+// "第N項" cross-references inside the Chinese topic text (ZH_MAIN_HTML); the list
+// below adds related pairs for topics whose text does not reference another topic.
+const GRAPH_EXTRA_LINKS = [
+  [1,2],[1,3],[1,5],[1,40],[1,102],[2,6],[2,102],[4,1],[4,81],[4,2],
+  [5,39],[6,19],[7,1],[7,85],[20,19],[20,6],[27,85],[27,18],
+  [30,26],[30,11],[30,9],[34,14],[34,88],[35,82],[35,3],
+  [38,39],[38,90],[41,11],[41,73],[45,43],[45,59],[53,22],[53,104],
+  [62,66],[62,108],[67,58],[67,40],[67,97],[73,51],[73,11],[77,90],[77,101],
+  [19,40],[19,22],[8,49],[8,25],[25,42],[75,103],[16,29],[13,80]
+];
+let _graphLinksCache = null;
+function getGraphLinks(){
+  if (_graphLinksCache) return _graphLinksCache;
+  const seen = new Set();
+  const links = [];
+  const neighbors = {};
+  const valid = {};
+  GRAPH_CATEGORIES.forEach(function(cat){ cat.nums.forEach(function(n){ valid[n] = true; }); });
+  function add(a, b){
+    if (a === b || !valid[a] || !valid[b]) return;
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    const key = lo + '-' + hi;
+    if (seen.has(key)) return;
+    seen.add(key);
+    links.push([lo, hi]);
+    (neighbors[lo] = neighbors[lo] || []).push(hi);
+    (neighbors[hi] = neighbors[hi] || []).push(lo);
+  }
+  ZH_MAIN_HTML.split('<details class="card"').slice(1).forEach(function(chunk){
+    const m = chunk.match(/class="num">(\d+)</);
+    if (!m) return;
+    const self = parseInt(m[1], 10);
+    const re = /第(\d{1,3})項/g;
+    let r;
+    while ((r = re.exec(chunk))) add(self, parseInt(r[1], 10));
+  });
+  GRAPH_EXTRA_LINKS.forEach(function(p){ add(p[0], p[1]); });
+  Object.keys(neighbors).forEach(function(k){ neighbors[k].sort(function(a, b){ return a - b; }); });
+  _graphLinksCache = {links:links, neighbors:neighbors};
+  return _graphLinksCache;
+}
+function graphTopicInfo(num){
+  for (let i = 0; i < GRAPH_CATEGORIES.length; i++) {
+    const t = GRAPH_CATEGORIES[i].t[num];
+    if (t) return {catIdx:i, zh:t.zh, en:t.en};
+  }
+  return null;
+}
+function graphLinkPaths(nodes, cx, cy, pull){
+  const pos = {};
+  nodes.forEach(function(n){ if (n.type === 'topic') pos[n.num] = n; });
+  const out = [];
+  getGraphLinks().links.forEach(function(l){
+    const a = pos[l[0]], b = pos[l[1]];
+    if (!a || !b) return;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    const qx = mx + (cx - mx) * pull, qy = my + (cy - my) * pull;
+    out.push({a:l[0], b:l[1], intra:a.catIdx === b.catIdx,
+      d:'M' + a.x.toFixed(1) + ',' + a.y.toFixed(1) + ' Q' + qx.toFixed(1) + ',' + qy.toFixed(1) + ' ' + b.x.toFixed(1) + ',' + b.y.toFixed(1)});
+  });
+  return out;
+}
+function graphHighlight(num){
+  const svg = document.getElementById('graphSvg');
+  svg.querySelectorAll('.graph-link.active').forEach(function(el){ el.classList.remove('active'); });
+  svg.querySelectorAll('.graph-node-topic.linked').forEach(function(el){ el.classList.remove('linked'); });
+  if (num == null) {
+    svg.classList.remove('hovering');
+    document.getElementById('graphCaption').textContent = defaultGraphCaption();
+    return;
+  }
+  svg.classList.add('hovering');
+  svg.querySelectorAll('.graph-link[data-a="' + num + '"], .graph-link[data-b="' + num + '"]').forEach(function(el){ el.classList.add('active'); });
+  const nb = getGraphLinks().neighbors[num] || [];
+  nb.forEach(function(k){
+    const el = svg.querySelector('.graph-node-topic[data-num="' + k + '"]');
+    if (el) el.classList.add('linked');
+  });
+  const en = currentLang === 'en';
+  const pad = function(n){ return n < 10 ? '0' + n : String(n); };
+  const name = function(k){ const i = graphTopicInfo(k); return pad(k) + ' ' + (i ? (en ? i.en : i.zh) : ''); };
+  let txt = name(num);
+  if (nb.length) txt += (en ? ' — related: ' : ' — 相關：') + nb.map(name).join(en ? ' · ' : '、');
+  document.getElementById('graphCaption').textContent = txt.replace(/&amp;/g, '&');
+}
+(function(){
+  const svg = document.getElementById('graphSvg');
+  if (!svg) return;
+  svg.addEventListener('mouseover', function(e){
+    const g = e.target.closest && e.target.closest('.graph-node-topic');
+    if (g) graphHighlight(parseInt(g.getAttribute('data-num'), 10));
+  });
+  svg.addEventListener('mouseout', function(e){
+    const g = e.target.closest && e.target.closest('.graph-node-topic');
+    if (g && !(e.relatedTarget && g.contains(e.relatedTarget))) graphHighlight(null);
+  });
+})();
+
 let graphRendered = false;
 let graphZoom = 1;
 const GRAPH_NATIVE_SIZE = 1100;
@@ -6084,7 +6192,7 @@ function computeOverviewLayout(){
       edges.push({type:'edge', catIdx:i, x1:catX, y1:catY, x2:tx, y2:ty});
     });
   });
-  return {W:W, H:H, nodes:nodes, edges:edges};
+  return {W:W, H:H, nodes:nodes, edges:edges, links:graphLinkPaths(nodes, cx, cy, 0.75)};
 }
 
 function computeFocusLayout(catIdx){
@@ -6102,7 +6210,7 @@ function computeFocusLayout(catIdx){
     nodes.push({type:'topic', num:num, catIdx:catIdx, x:tx, y:ty, angleDeg:angleDeg, showLabel:true});
     edges.push({type:'edge', catIdx:catIdx, x1:cx, y1:cy, x2:tx, y2:ty});
   });
-  return {W:W, H:H, nodes:nodes, edges:edges};
+  return {W:W, H:H, nodes:nodes, edges:edges, links:graphLinkPaths(nodes, cx, cy, 0.45)};
 }
 
 function isMobileGraphView(){
@@ -6127,7 +6235,14 @@ function renderGraphMobileList(){
     cat.nums.forEach(function(num){
       const title = lang === 'en' ? cat.t[num].en : cat.t[num].zh;
       const numStr = num < 10 ? '0' + num : String(num);
-      html += '<li onclick="goToTopic(' + num + ')"><span class="num">' + numStr + '</span><span>' + title + '</span></li>';
+      const nb = getGraphLinks().neighbors[num] || [];
+      let rel = '';
+      if (nb.length) {
+        rel = '<span class="rel">' + (lang === 'en' ? 'Related: ' : '相關：') + nb.map(function(k){
+          return '<a onclick="event.stopPropagation();goToTopic(' + k + ')">' + (k < 10 ? '0' + k : k) + '</a>';
+        }).join('') + '</span>';
+      }
+      html += '<li onclick="goToTopic(' + num + ')"><span class="num">' + numStr + '</span><span>' + title + rel + '</span></li>';
     });
     html += '</ul></div></details>';
   });
@@ -6164,6 +6279,10 @@ function renderGraph(){
   svg.setAttribute('width', layout.W * graphZoom);
   svg.setAttribute('height', layout.H * graphZoom);
   let html = '';
+  svg.classList.remove('hovering');
+  (layout.links || []).forEach(function(l){
+    html += '<path class="graph-link' + (l.intra ? ' intra' : '') + '" data-a="' + l.a + '" data-b="' + l.b + '" d="' + l.d + '"></path>';
+  });
   layout.edges.forEach(function(e){
     const cls = e.type === 'cat-edge' ? 'graph-edge cat-edge' : 'graph-edge';
     html += '<line class="' + cls + '" data-cat="' + e.catIdx + '" x1="' + e.x1 + '" y1="' + e.y1 + '" x2="' + e.x2 + '" y2="' + e.y2 + '"></line>';
@@ -6235,8 +6354,8 @@ function defaultGraphCaption(){
       : '點擊主題跳至該頁 · 點擊「← 總覽」返回全圖';
   }
   return lang === 'en'
-    ? 'Tap a hub to focus on that category · tap a topic to jump to it'
-    : '點擊主分類節點可聚焦查看該分類 · 點擊主題節點跳至該頁';
+    ? 'Hover a topic to highlight related topics · tap a hub to focus on that category · tap a topic to jump to it'
+    : '滑過主題可標示相關主題 · 點擊主分類節點可聚焦查看該分類 · 點擊主題節點跳至該頁';
 }
 
 function recenterGraphCanvas(){
@@ -14505,7 +14624,7 @@ Can follow commands? → No → <b>Red</b>
         <tr><td>Chinese Cobra</td><td class="danger">Neurotoxic</td><td>Spreads hood when threatened, two black "spectacle" spots visible on the hood from behind, round head</td></tr>
         <tr><td>Banded Krait</td><td class="danger">Neurotoxic (highly potent)</td><td>Alternating black/white bands (wide black, narrow white), round head, calm temperament but very potent venom</td></tr>
         <tr><td>Chinese Habu</td><td class="danger">Hemotoxic</td><td>Triangular head, a wavy dark brown blotch pattern down the back's center — most bites with severe complications</td></tr>
-        <tr><td>Taiwan Bamboo Viper</td><td class="danger">Hemotoxic</td><td>Bright green back, yellow-green belly, brick-red tail — abundant and Taiwan's #1 most common bite</td></tr>
+        <tr><td>Taiwan Bamboo Viper</td><td class="danger">Hemotoxic</td><td>Bright green back, yellow-green belly, brick-red tail — abundant and Taiwan's No. 1 most common bite</td></tr>
         <tr><td>Hundred Pace Viper</td><td class="danger">Hemotoxic</td><td>Thick-bodied, black-edged diamond blotches down the back, upturned snout — calm temperament, rarely attacks first</td></tr>
         <tr><td>Russell's Viper</td><td class="danger">Mixed (hemotoxic + neurotoxic)</td><td>Chain-like oval blotches, round head (an exception), only found in Pingtung/Taitung — Taiwan's most aggressive venomous snake</td></tr>
         <tr><td>Kikuchi's Habu (Taiwan Bamboo Viper, high-altitude)</td><td class="danger">Hemotoxic</td><td>Taiwan-endemic, small (under 60cm) and slow-moving, found mainly at 2000–3500m elevation (Taiwan's only pit viper found above 3000m); docile and rarely attacks unprovoked; <b>no dedicated antivenom exists in Taiwan</b> — habu/bamboo viper antivenom is used instead</td></tr>
